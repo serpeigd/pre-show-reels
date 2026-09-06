@@ -100,15 +100,15 @@ retrieval) · MyMemory (free — on-the-fly Spanish translation, cached) ·
 Upstash Redis free REST API (optional — durable comments/movie-requests
 on a redeploy; falls back to local files without it).
 
-**CI:** currently broken on every push (see badge above, and
-[Limitations](#limitations)) — `tests.yml` only installs
-`pydantic`/`pytest`/`pyyaml`, but two newer test files import
-`fastapi`/`groq`/`httpx` directly instead of through
-`pytest.importorskip` the way `test_similarity_judge.py`/
-`test_trained_classifier_judge.py` correctly do, so collection is
-interrupted before any test runs. Locally, with every dependency
-installed except `sentence-transformers`, 31 of the suite's 35 tests
-pass (the rest need that optional package too).
+**CI:** green (see badge above) — `tests.yml` installs only
+`pydantic`/`pytest`/`pyyaml`; every test needing `fastapi`/`groq`/`httpx`/
+`scikit-learn`/`sentence-transformers` guards its own import with
+`pytest.importorskip`, so CI runs 18 of the 35 tests and cleanly skips
+the rest rather than failing collection (broken 2026-08-19–2026-08-30 —
+two newer test files imported those packages directly; both now use
+`importorskip` like every other optional-dependency test here). Locally,
+with every dependency installed except `sentence-transformers`, 31 of
+the 35 tests pass, 4 skipped; with that last package too, all 35 run.
 
 ## How it's built
 
@@ -129,7 +129,7 @@ pass (the rest need that optional package too).
 |---|---|
 | Twistify app (catalogue, spoiler gate, filters, comments) | ✅ 23 entries researched — 18/20 measurement titles plus 5 beyond that set |
 | Browse catalogue (TMDB posters, live search, ES/EN) | ✅ posters for every title in the catalogue, search reaches all of TMDB |
-| Offline evals harness | ⛔ CI currently failing (collection error — see [Limitations](#limitations)); 31/35 tests pass locally, 35/35 with optional `sentence-transformers` too |
+| Offline evals harness | ✅ CI green (18/35 tests run there, rest skipped — no `fastapi`/`groq`/etc. installed); 31/35 pass locally, 35/35 with optional `sentence-transformers` too |
 | Spoiler ground truth (20 titles) | ✅ 20/20, LLM-researched with cited sources (never hand-labeled — see [Ground truth, precisely](#ground-truth-precisely) below) |
 | Baseline generator (no retrieval) | ✅ two providers — Anthropic (paid) and Groq (free tier, no card) |
 | Judge calibration (offline + real spoiler reviews) | ⛔ **closed, unsolved** — six judges built and tested against real generator output; none clears the bar to trust a `leakage_rate`. `SubstringJudge` (recall=0.0) stays the default because its failure mode is bounded and known (see [Limitations](#limitations)) |
@@ -162,7 +162,7 @@ a system that **measures**, instead of promising, three things per entry:
    this one)
 
 ```bash
-python -m pytest tests/ -q                            # 31/35 (35/35 with sentence-transformers too), no network, no API key -- CI itself is currently broken, see Limitations
+python -m pytest tests/ -q                            # 31/35 (35/35 with sentence-transformers too), no network, no API key -- CI runs a smaller 18/35 slice (only pydantic/pytest/pyyaml installed there) and is green
 python evals/run_eval.py --generator baseline-groq    # free tier, no card
 python evals/run_eval.py --generator baseline         # or the paid Anthropic version
 ```
@@ -551,6 +551,7 @@ src/preshow/             shared library: schemas, clients, generators
   baseline.py / baseline_groq.py / baseline_prompts.py   Milestone 0: no-retrieval baseline (2 providers, 1 prompt)
   retrieval.py                          Milestone 1: builds the GREEN-only corpus (D16)
   retrieval_groq.py / retrieval_prompts.py   Milestone 1 generator — its own prompt, not a baseline variant
+  groq_retry.py             shared pacing + retry loop (baseline_groq.py, retrieval_groq.py, research_assist.py)
   content.py                loads/serves content/researched/*.json
   tmdb.py / wikipedia.py    stdlib-only clients for the browse tier and retrieval
   translate.py               free MyMemory API client, disk-cached
@@ -579,7 +580,7 @@ content/
   _tmdb_cache/                 (gitignored)
   _wikipedia_cache/            research_assist.py's fetched articles (gitignored)
 
-tests/                   offline pytest suite (35 tests, no network, no API key); needs fastapi/groq/httpx installed too, or collection fails outright — CI doesn't install those, so it currently collects zero tests, see Limitations
+tests/                   offline pytest suite (35 tests, no network, no API key); tests needing fastapi/groq/httpx/scikit-learn/sentence-transformers skip themselves via pytest.importorskip when those aren't installed — CI (pydantic/pytest/pyyaml only) runs 18/35, green
 docs/DESIGN.md            every design decision (D1–D17) with its trade-off
 docs/screenshots/          the two screenshots at the top of this README
 .github/workflows/tests.yml   CI: installs core deps, runs pytest on every push/PR
@@ -673,13 +674,6 @@ own stated goal applied to itself:
   above for the leak that review step actually caught). An explicit,
   disclosed, knowingly-risky decision, not an oversight — see
   `webapp/app.py`'s module docstring.
-- **CI is currently failing on every push (since 2026-08-19).**
-  `tests.yml` only installs `pydantic`/`pytest`/`pyyaml`, but two newer
-  test files (`test_auto_publish.py`, `test_groq_retry.py`) import
-  `fastapi`/`groq`/`httpx` directly instead of through
-  `pytest.importorskip` — collection is interrupted before a single
-  test runs. Locally, with those installed (but not
-  `sentence-transformers`), 31/35 tests pass.
 - **The live demo's comments/movie-requests reset on idle spin-down**
   (Render free tier wipes the filesystem; Upstash isn't wired in yet —
   see [Roadmap](#roadmap)). Known and accepted, not a bug to chase.
